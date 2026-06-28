@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>대전 맞춤형 주거적합도 AI</title>
+    <meta name="description" content="사용자의 예산, 생활패턴, 이동 조건을 바탕으로 대전 내 살기 좋은 주거지를 추천하는 AI 서비스">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏙️</text></svg>">
+
+    <!-- Leaflet.js (OSM 기반) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Google Fonts (Outfit + Noto Sans KR) -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Outfit:wght@300;400;600;800;900&display=swap"
+        rel="stylesheet">
+
+    <style>
+        /* ============ 색상 테마 변수 — 대전 도시브랜드 꿈씨패밀리 파스텔 ============ */
+        :root {
+            /* 꿈씨패밀리 주색상 */
+            --dj-beige: #F5C882;
+            /* 꿈돌이 */
+            --dj-pink: #F09AAF;
+            /* 꿈순이 */
+            --dj-sky: #79C8DC;
+            /* 하늘이 */
+            --dj-yellow: #F5C200;
+            /* 한꿈이 */
+            --dj-purple: #B8A7D9;
+            /* 보라이 */
+            --dj-mint: #8DC89A;
+            /* 민트이 */
+
+            /* 구조 색상 (MMP 구조 유지 + DJ 브랜드화) */
+            --ba-blue: #79C8DC;
+            /* 하늘이 색으로 교체 */
+            --ba-blue-glow: rgba(121, 200, 220, 0.4);
+            --ba-blue-light: #EFF9FC;
+            --ba-blue-dark: #1E2A3A;
+            --ba-bg-light: #FBF8F4;
+            --ba-text-main: #2C2C4A;
+            --ba-text-sub: #8A8AA5;
+            --ba-accent-pink: #F09AAF;
+            --ba-accent-yellow: #F5C200;
+            --ba-accent-green: #8DC89A;
+            --ba-accent-orange: #F5A55A;
+            --ba-border-color: rgba(121, 200, 220, 0.3);
+            --font-ba: 'Outfit', 'Noto Sans KR', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-ba);
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* ============ 헤더 ============ */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 64px;
+            background: linear-gradient(90deg, #1E2A3A 0%, #2C2C4A 100%);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 32px;
+            border-bottom: 2px solid;
+            border-image: linear-gradient(90deg, var(--dj-beige), var(--dj-pink), var(--dj-sky), var(--dj-yellow)) 1;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+        }
+
+        .header-logo {
+            font-family: var(--font-ba);
+            font-weight: 900;
+            font-size: 18px;
+            color: #fff;
+            letter-spacing: -0.5px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .header-logo span {
+            color: var(--dj-beige);
+        }
+
+        .header-logo-char {
+            height: 32px;
+            width: auto;
+            vertical-align: middle;
+            margin-right: 8px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+        }
+
+        .header-nav {
+            display: flex;
+            gap: 24px;
+        }
+
+        .nav-item {
+            font-family: var(--font-ba);
+            font-weight: 700;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.55);
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 6px 0;
+            position: relative;
+            transition: color 0.3s;
+            white-space: nowrap;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            color: #fff;
+        }
+
+        .nav-item::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--ba-blue);
+            transition: width 0.3s;
+        }
+
+        .nav-item:hover::after,
+        .nav-item.active::after {
+            width: 100%;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-badge {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--ba-blue);
+            border: 1px solid var(--ba-blue);
+            padding: 3px 8px;
+            border-radius: 20px;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+        }
+
+        /* ============ 지도 ============ */
+        #map-container {
+            position: absolute;
+            top: 64px;
+            bottom: 36px;
+            left: 0;
+            right: 0;
+            z-index: 1;
+        }
+
+        #map_div {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* ============ 오버레이 ============ */
+        #map-overlay {
+            position: absolute;
+            top: 64px;
+            bottom: 36px;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, rgba(15, 28, 44, 0.3) 0%, rgba(18, 166, 255, 0.1) 100%);
+            z-index: 2;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        #map-overlay.hidden {
+            opacity: 0;
+        }
+
+        /* ============ 인트로 ============ */
+        #intro-overlay {
+            position: absolute;
+            top: 64px;
+            bottom: 36px;
+            left: 440px;
+            right: 0;
+            z-index: 5;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 0 80px;
+            transition: opacity 0.8s ease;
+        }
+
+        #intro-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .intro-title {
+            font-weight: 900;
+            font-size: 62px;
+            line-height: 1.15;
+            color: #fff;
+            text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.6s cubic-bezier(.25, 1, .5, 1), transform 0.6s cubic-bezier(.25, 1, .5, 1);
+        }
+
+        .intro-title.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .intro-sub {
+            margin-top: 20px;
+            font-size: 16px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.7);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s 0.2s cubic-bezier(.25, 1, .5, 1), transform 0.6s 0.2s cubic-bezier(.25, 1, .5, 1);
+        }
+
+        .intro-sub.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .intro-cta {
+            margin-top: 28px;
+            pointer-events: auto;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s 0.4s cubic-bezier(.25, 1, .5, 1), transform 0.6s 0.4s cubic-bezier(.25, 1, .5, 1);
+        }
+
+        .intro-cta.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ============ 사이드바 (MMP 클립보드 테마) ============ */
+        #sidebar {
+            position: absolute;
+            top: 64px;
+            bottom: 36px;
+            left: -440px;
+            width: 440px;
+            background: #f7fafc;
+            border-right: 3px solid var(--ba-blue);
+            z-index: 100;
+            padding: 28px 22px 20px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            transition: left 0.8s cubic-bezier(0.77, 0, 0.175, 1);
+            box-shadow: 10px 0 30px rgba(15, 28, 44, 0.12);
+            pointer-events: auto;
+        }
+
+        #sidebar.open {
+            left: 0;
+        }
+
+        .sidebar-clip-deco {
+            width: 100px;
+            height: 18px;
+            background: #b2c5d4;
+            margin: -18px auto 8px auto;
+            border-radius: 4px 4px 0 0;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
+            position: relative;
+        }
+
+        .sidebar-clip-deco::before {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 12px;
+            width: 76px;
+            height: 8px;
+            background: #7d8f9f;
+            border-radius: 2px;
+        }
+
+        .sb-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid var(--ba-blue);
+            padding-bottom: 10px;
+            position: relative;
+        }
+
+        .sb-header::after {
+            content: attr(data-label);
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            font-size: 8px;
+            font-family: monospace;
+            color: var(--ba-blue);
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
+        .sb-title {
+            font-weight: 900;
+            font-size: 18px;
+            color: var(--ba-text-main);
+            letter-spacing: -0.5px;
+        }
+
+        .sb-mode-tag {
+            font-size: 9px;
+            font-weight: 900;
+            color: var(--ba-blue);
+            border: 1px solid var(--ba-blue);
+            padding: 2px 7px;
+            border-radius: 10px;
+            letter-spacing: 0.3px;
+        }
+
+        .sb-desc {
+            font-size: 11px;
+            color: var(--ba-text-sub);
+            line-height: 1.5;
+            padding: 0 2px;
+        }
+
+        #sb-body {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-right: 4px;
+        }
+
+        #sb-body::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        #sb-body::-webkit-scrollbar-track {
+            background: rgba(18, 166, 255, 0.05);
+        }
+
+        #sb-body::-webkit-scrollbar-thumb {
+            background: rgba(18, 166, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        #sb-body::-webkit-scrollbar-thumb:hover {
+            background: var(--ba-blue);
+        }
+
+        /* ============ 카드 ============ */
+        .card {
+            background: white;
+            border: 1px solid var(--ba-border-color);
+            border-left: 5px solid var(--ba-blue);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+            box-shadow: 0 3px 10px rgba(15, 28, 44, 0.04);
+            transition: all 0.25s ease;
+        }
+
+        .card::before {
+            content: '// HOUSING AI';
+            position: absolute;
+            top: 4px;
+            right: 8px;
+            font-size: 8px;
+            font-family: monospace;
+            color: var(--ba-text-sub);
+            opacity: 0.6;
+        }
+
+        .card.done {
+            border-left-color: var(--ba-text-sub);
+            background: var(--ba-bg-light);
+        }
+
+        .card.done::before {
+            content: '// INFO';
+        }
+
+        .card.highlight {
+            border-left-color: var(--ba-accent-yellow);
+            background: #fffdf5;
+        }
+
+        .card.highlight::before {
+            content: '// TOP PICK';
+            color: var(--ba-accent-yellow);
+        }
+
+        .card-label {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--ba-blue);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card.highlight .card-label {
+            color: #c9a400;
+        }
+
+        .card.done .card-label {
+            color: var(--ba-text-sub);
+        }
+
+        .card-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--ba-text-main);
+        }
+
+        .step-head {
+            font-size: 13px;
+            font-weight: 950;
+            color: var(--ba-text-main);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* ============ 폼 요소 ============ */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-group label {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--ba-text-sub);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .sel {
+            width: 100%;
+            background: white;
+            border: 1px solid var(--ba-border-color);
+            border-radius: 2px;
+            padding: 9px 12px;
+            color: var(--ba-text-main);
+            font-family: var(--font-ba);
+            font-size: 12px;
+            font-weight: 700;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .sel:focus {
+            border-color: var(--ba-blue);
+            box-shadow: 0 0 5px var(--ba-blue-glow);
+        }
+
+        .inp {
+            width: 100%;
+            background: white;
+            border: 1px solid var(--ba-border-color);
+            border-radius: 2px;
+            padding: 9px 12px;
+            color: var(--ba-text-main);
+            font-family: var(--font-ba);
+            font-size: 12px;
+            font-weight: 700;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .inp:focus {
+            border-color: var(--ba-blue);
+            box-shadow: 0 0 5px var(--ba-blue-glow);
+        }
+
+        /* ============ 버튼 ============ */
+        .btn-primary {
+            background: var(--ba-blue);
+            color: #fff;
+            border: none;
+            padding: 11px;
+            font-family: var(--font-ba);
+            font-weight: 800;
+            font-size: 13px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s ease;
+            clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+            box-shadow: 0 3px 8px var(--ba-blue-glow);
+        }
+
+        .btn-primary:hover {
+            background: #008ee6;
+            transform: translateY(-1px);
+            box-shadow: 0 5px 12px var(--ba-blue-glow);
+        }
+
+        .btn-yellow {
+            background: var(--ba-accent-yellow);
+            color: #000;
+            border: none;
+            padding: 11px;
+            font-family: var(--font-ba);
+            font-weight: 800;
+            font-size: 12px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+            clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+        }
+
+        .btn-yellow:hover {
+            background: #f0c500;
+            transform: translateY(-1px);
+        }
+
+        .btn-ghost {
+            background: white;
+            border: 1.5px solid var(--ba-border-color);
+            color: var(--ba-text-main);
+            padding: 9px 14px;
+            font-family: var(--font-ba);
+            font-weight: 800;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+        }
+
+        .btn-ghost:hover {
+            border-color: var(--ba-blue);
+            color: var(--ba-blue);
+            background: var(--ba-blue-light);
+        }
+
+        /* ============ 토글 버튼 ============ */
+        .toggle-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .toggle-btn {
+            flex: 1;
+            min-width: calc(33% - 4px);
+            background: white;
+            border: 1px solid var(--ba-border-color);
+            color: var(--ba-text-main);
+            padding: 8px 4px;
+            cursor: pointer;
+            font-family: var(--font-ba);
+            font-weight: 700;
+            font-size: 11px;
+            text-align: center;
+            transition: all 0.2s;
+            clip-path: polygon(5px 0%, 100% 0%, calc(100% - 5px) 100%, 0% 100%);
+        }
+
+        .toggle-btn:hover {
+            background: var(--ba-blue-light);
+            border-color: var(--ba-blue);
+            color: var(--ba-blue);
+        }
+
+        .toggle-btn.active {
+            background: var(--ba-blue);
+            color: #fff;
+            border-color: var(--ba-blue);
+        }
+
+        /* ============ 슬라이더 ============ */
+        .weight-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 3px 0;
+        }
+
+        .weight-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--ba-text-main);
+            min-width: 72px;
+        }
+
+        .weight-slider {
+            flex: 1;
+            height: 4px;
+            cursor: pointer;
+            accent-color: var(--ba-blue);
+        }
+
+        .weight-val {
+            font-size: 11px;
+            font-weight: 900;
+            color: var(--ba-blue);
+            min-width: 20px;
+            text-align: right;
+        }
+
+        /* ============ 점수 바 ============ */
+        .score-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .score-row-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--ba-text-sub);
+            min-width: 48px;
+        }
+
+        .score-bar {
+            flex: 1;
+            height: 6px;
+            background: rgba(18, 166, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.6s cubic-bezier(.25, 1, .5, 1);
+        }
+
+        .score-row-val {
+            font-size: 10px;
+            font-weight: 900;
+            min-width: 26px;
+            text-align: right;
+        }
+
+        /* ============ 랭킹 배지 ============ */
+        .rank-badge {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 900;
+            flex-shrink: 0;
+        }
+
+        .rank-1 {
+            background: var(--ba-accent-yellow);
+            color: #000;
+        }
+
+        .rank-2 {
+            background: #c0c0c0;
+            color: #000;
+        }
+
+        .rank-3 {
+            background: #cd7f32;
+            color: #fff;
+        }
+
+        .rank-4,
+        .rank-5 {
+            background: var(--ba-blue-dark);
+            color: var(--ba-blue);
+            border: 1.5px solid var(--ba-blue);
+        }
+
+        /* ============ 태그 ============ */
+        .tag-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .tag {
+            font-size: 9px;
+            font-weight: 800;
+            padding: 2px 7px;
+            border-radius: 10px;
+        }
+
+        .tag-blue {
+            background: rgba(18, 166, 255, 0.12);
+            color: var(--ba-blue);
+        }
+
+        /* ============ 장단점 ============ */
+        .pros-item {
+            font-size: 10px;
+            font-weight: 600;
+            display: flex;
+            gap: 4px;
+            align-items: flex-start;
+            line-height: 1.4;
+            color: #27ae60;
+        }
+
+        .cons-item {
+            font-size: 10px;
+            font-weight: 600;
+            display: flex;
+            gap: 4px;
+            align-items: flex-start;
+            line-height: 1.4;
+            color: var(--ba-accent-pink);
+        }
+
+        /* ============ 지역 필터 ============ */
+        .gu-filter-row {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        .gu-btn {
+            font-size: 10px;
+            font-weight: 800;
+            padding: 4px 10px;
+            background: white;
+            border: 1px solid var(--ba-border-color);
+            color: var(--ba-text-sub);
+            cursor: pointer;
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+
+        .gu-btn:hover,
+        .gu-btn.active {
+            background: var(--ba-blue);
+            color: #fff;
+            border-color: var(--ba-blue);
+        }
+
+        /* ============ 범례 ============ */
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--ba-text-main);
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* ============ 적합도 판정 ============ */
+        .verdict-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            font-size: 14px;
+            font-weight: 900;
+            border-radius: 4px;
+            letter-spacing: 0.5px;
+        }
+
+        .verdict-recommend {
+            background: rgba(46, 204, 113, 0.15);
+            color: #27ae60;
+            border: 1.5px solid #27ae60;
+        }
+
+        .verdict-conditional {
+            background: rgba(18, 166, 255, 0.1);
+            color: var(--ba-blue);
+            border: 1.5px solid var(--ba-blue);
+        }
+
+        .verdict-caution {
+            background: rgba(255, 159, 67, 0.12);
+            color: var(--ba-accent-orange);
+            border: 1.5px solid var(--ba-accent-orange);
+        }
+
+        .verdict-no {
+            background: rgba(255, 59, 119, 0.1);
+            color: var(--ba-accent-pink);
+            border: 1.5px solid var(--ba-accent-pink);
+        }
+
+        /* ============ 채팅 패널 ============ */
+        #chat-panel {
+            position: absolute;
+            top: 64px;
+            bottom: 36px;
+            left: -440px;
+            width: 440px;
+            background: #f7fafc;
+            border-right: 3px solid var(--ba-blue);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            padding: 28px 22px 0 22px;
+            gap: 10px;
+            transition: left 0.8s cubic-bezier(0.77, 0, 0.175, 1);
+            box-shadow: 10px 0 30px rgba(15, 28, 44, 0.12);
+            pointer-events: auto;
+        }
+
+        #chat-panel.open {
+            left: 0;
+        }
+
+        #chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 6px 2px;
+        }
+
+        #chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        #chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(18, 166, 255, 0.25);
+            border-radius: 2px;
+        }
+
+        .chat-msg {
+            display: flex;
+            gap: 8px;
+            animation: fadeInUp 0.3s ease forwards;
+        }
+
+        .chat-msg.user {
+            flex-direction: row-reverse;
+        }
+
+        .chat-bubble {
+            max-width: 82%;
+            padding: 10px 13px;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.55;
+            border-radius: 2px;
+            font-family: var(--font-ba);
+        }
+
+        .chat-msg.ai .chat-bubble {
+            background: white;
+            border: 1px solid var(--ba-border-color);
+            border-left: 3px solid var(--ba-blue);
+            color: var(--ba-text-main);
+        }
+
+        .chat-msg.user .chat-bubble {
+            background: var(--ba-blue);
+            color: #fff;
+            clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 8px 100%);
+        }
+
+        .chat-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+            margin-top: 2px;
+            background: var(--ba-blue-light);
+        }
+
+        .chat-input-area {
+            display: flex;
+            gap: 6px;
+            padding: 10px 0;
+            border-top: 1px solid var(--ba-border-color);
+        }
+
+        #chat-input {
+            flex: 1;
+            background: white;
+            border: 1.5px solid var(--ba-border-color);
+            padding: 9px 12px;
+            font-family: var(--font-ba);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--ba-text-main);
+            outline: none;
+            border-radius: 2px;
+            transition: border-color 0.2s;
+        }
+
+        #chat-input:focus {
+            border-color: var(--ba-blue);
+        }
+
+        #chat-send {
+            background: var(--ba-blue);
+            color: #fff;
+            border: none;
+            padding: 9px 14px;
+            font-family: var(--font-ba);
+            font-weight: 800;
+            font-size: 12px;
+            cursor: pointer;
+            clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+            transition: background 0.2s;
+        }
+
+        #chat-send:hover {
+            background: #008ee6;
+        }
+
+        /* ============ 매물 평가 모달 ============ */
+        #modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 500;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+
+        #modal-overlay.open {
+            display: flex;
+        }
+
+        #modal-box {
+            background: #f7fafc;
+            width: 480px;
+            max-height: 85vh;
+            overflow-y: auto;
+            border-top: 4px solid var(--ba-blue);
+            padding: 28px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+            animation: fadeInUp 0.3s ease;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid var(--ba-blue);
+            padding-bottom: 10px;
+        }
+
+        .modal-title {
+            font-size: 17px;
+            font-weight: 900;
+            color: var(--ba-text-main);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--ba-text-sub);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 4px;
+            transition: color 0.2s;
+        }
+
+        .modal-close:hover {
+            color: var(--ba-accent-pink);
+        }
+
+        .modal-result {
+            background: white;
+            border: 1px solid var(--ba-border-color);
+            border-left: 5px solid var(--ba-blue);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            animation: fadeInUp 0.4s ease;
+        }
+
+        /* ============ 배너 ============ */
+        #banner {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(8, 16, 28, 0.95);
+            border: 2px solid rgba(255, 208, 67, 0.4);
+            box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(255, 208, 67, 0.2);
+            padding: 12px 24px;
+            border-radius: 30px;
+            z-index: 200;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            pointer-events: none;
+            animation: pulseGlow 2.5s infinite alternate;
+        }
+
+        #banner.show {
+            display: flex;
+        }
+
+        @keyframes pulseGlow {
+            0% {
+                box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6), 0 0 8px rgba(255, 208, 67, 0.1);
+                border-color: rgba(255, 208, 67, 0.3);
+            }
+
+            100% {
+                box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6), 0 0 22px rgba(255, 208, 67, 0.5);
+                border-color: rgba(255, 208, 67, 0.8);
+            }
+        }
+
+        /* ============ 푸터 ============ */
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 36px;
+            background: #000;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.3);
+            letter-spacing: 0.5px;
+            z-index: 1000;
+        }
+
+        /* ============ 애니메이션 ============ */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .fade-in {
+            animation: fadeInUp 0.4s ease forwards;
+        }
+
+        /* ============ 체크박스 ============ */
+        .check-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+        }
+
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--ba-text-main);
+            cursor: pointer;
+            padding: 4px 6px;
+            border: 1px solid var(--ba-border-color);
+            background: white;
+            transition: all 0.2s;
+        }
+
+        .check-item input {
+            accent-color: var(--ba-blue);
+        }
+
+        .check-item:hover {
+            border-color: var(--ba-blue);
+            background: var(--ba-blue-light);
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-row>* {
+            flex: 1;
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--ba-border-color);
+            margin: 2px 0;
+        }
+
+        /* ============ 꿈씨패밀리 인트로 캐릭터 ============ */
+        #intro-character {
+            position: absolute;
+            bottom: 0;
+            right: 60px;
+            height: 320px;
+            width: auto;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.8s 0.5s ease, transform 0.8s 0.5s cubic-bezier(.25, 1, .5, 1);
+            filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
+            animation-play-state: paused;
+        }
+
+        #intro-character.visible {
+            opacity: 1;
+            transform: translateY(0);
+            animation: charFloat 3.5s ease-in-out infinite;
+            animation-play-state: running;
+        }
+
+        @keyframes charFloat {
+
+            0%,
+            100% {
+                transform: translateY(0px);
+            }
+
+            50% {
+                transform: translateY(-14px);
+            }
+        }
+
+        /* ============ 사이드바 마스코트 ============ */
+        .sb-mascot {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: linear-gradient(135deg, rgba(245, 200, 130, 0.15), rgba(240, 154, 175, 0.15));
+            border: 1px solid rgba(245, 200, 130, 0.35);
+            border-radius: 2px;
+            margin-top: auto;
+            flex-shrink: 0;
+        }
+
+        .sb-mascot img {
+            height: 64px;
+            width: auto;
+            flex-shrink: 0;
+            filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.1));
+        }
+
+        .sb-mascot-text {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--ba-text-sub);
+            line-height: 1.5;
+        }
+
+        .sb-mascot-text b {
+            color: var(--dj-beige);
+            display: block;
+            font-size: 11px;
+            margin-bottom: 2px;
+        }
+
+        /* ============ 채팅 아바타 (꿈돌이) ============ */
+        .chat-avatar.ai-avatar {
+            background: transparent;
+            padding: 0;
+        }
+
+        .chat-avatar.ai-avatar img {
+            width: 28px;
+            height: 28px;
+            object-fit: contain;
+            border-radius: 50%;
+            background: var(--ba-blue-light);
+            padding: 2px;
+        }
+
+        /* ============ 도시브랜드 배너 강조 ============ */
+        .dj-brand-strip {
+            position: absolute;
+            bottom: 36px;
+            right: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 0;
+            pointer-events: none;
+        }
+
+        .dj-brand-pill {
+            background: rgba(30, 42, 58, 0.9);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(245, 200, 130, 0.3);
+            border-right: none;
+            padding: 6px 14px 6px 10px;
+            font-size: 10px;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.7);
+            border-radius: 20px 0 0 20px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            letter-spacing: 0.3px;
+        }
+
+        .dj-brand-pill span {
+            color: var(--dj-beige);
+        }
+
+        /* Leaflet 커스텀 */
+        .leaflet-popup-content-wrapper {
+            border-radius: 2px !important;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25) !important;
+            border-top: 3px solid var(--dj-sky) !important;
+            padding: 0 !important;
+        }
+
+        .leaflet-popup-content {
+            margin: 0 !important;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- ===== 헤더 ===== -->
+    <header class="header">
+        <div class="header-left">
+            <div class="header-logo" onclick="switchTab('map')">
+                <img src="dream_family_01.png" alt="꿈돌이꿈순이" class="header-logo-char">
+                대전 <span>주거 AI</span>
+            </div>
+            <nav class="header-nav">
+                <button class="nav-item active" id="navMap" onclick="switchTab('map')">🗺 지도</button>
+                <button class="nav-item" id="navInput" onclick="switchTab('input')">✏️ 조건 입력</button>
+                <button class="nav-item" id="navResult" onclick="switchTab('result')">🏆 추천 결과</button>
+                <button class="nav-item" id="navChat" onclick="switchTab('chat')">💬 AI 상담</button>
+            </nav>
+        </div>
+        <div class="header-right">
+            <span class="header-badge" style="border-color:var(--dj-beige);color:var(--dj-beige);">Daejeon is U
+                🌟</span>
+        </div>
+    </header>
+
+    <!-- ===== 배너 ===== -->
+    <div id="banner"><span>📍</span><span id="banner-text">지도를 클릭해 행정동 정보를 확인하세요</span></div>
+
+    <!-- ===== 지도 ===== -->
+    <div id="map-container">
+        <div id="map_div"></div>
+    </div>
+    <div id="map-overlay"></div>
+
+    <!-- ===== 인트로 ===== -->
+    <div id="intro-overlay">
+        <div class="intro-title" id="intro-t1">어디에 살아야</div>
+        <div class="intro-title" id="intro-t2" style="color:var(--dj-beige);">후회가 없을까?</div>
+        <div class="intro-sub" id="intro-sub">대전 공공데이터 기반 AI 주거 의사결정 서비스</div>
+        <div class="intro-cta" id="intro-cta">
+            <button class="btn-primary" style="width:220px;background:var(--dj-beige);color:#2C2C4A;"
+                onclick="switchTab('input')">꿈돌이와 함께 시작하기 ✨</button>
+        </div>
+        <!-- 꿈씨패밀리 캐릭터 -->
+        <img src="character_dream.png" alt="꿈씨패밀리" id="intro-character">
+    </div>
+
+    <!-- ===== 사이드바 ===== -->
+    <div id="sidebar">
+        <div class="sidebar-clip-deco" style="background:linear-gradient(90deg,var(--dj-beige),var(--dj-pink));"></div>
+        <div class="sb-header" id="sb-header" data-label="DAEJEON IS U · HOUSING AI">
+            <div class="sb-title" id="sb-title">행정동 지도</div>
+            <div class="sb-mode-tag" id="sb-mode-tag" style="border-color:var(--dj-sky);color:var(--dj-sky);">지도 모드
+            </div>
+        </div>
+        <div class="sb-desc" id="sb-desc">행정동 마커를 클릭해 상세 정보를 확인하세요.</div>
+        <div id="sb-body"></div>
+        <!-- 꿈돌이·꿈순이 마스코트 -->
+        <div class="sb-mascot">
+            <img src="dream_family_01.png" alt="꿈돌이 꿈순이">
+            <div class="sb-mascot-text">
+                <b>꿈돌이 · 꿈순이</b>
+                대전에서 딱 맞는 집을<br>함께 찾아드릴게요! 🌟
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 채팅 패널 ===== -->
+    <div id="chat-panel">
+        <div class="sidebar-clip-deco" style="background:linear-gradient(90deg,var(--dj-sky),var(--dj-purple));"></div>
+        <div class="sb-header" data-label="DAEJEON IS U · AI CONSULTANT">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <img src="dream_family_01.png" alt="꿈돌이"
+                    style="height:32px;width:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));">
+                <div class="sb-title">AI 주거 상담</div>
+            </div>
+            <div class="sb-mode-tag" style="border-color:var(--dj-pink);color:var(--dj-pink);">꿈돌이 모드</div>
+        </div>
+        <div class="sb-desc">꿈돌이가 대전 주거 정보를 알려드려요! 궁금한 것을 물어보세요.</div>
+        <div id="chat-messages"></div>
+        <div class="chat-input-area">
+            <input id="chat-input" type="text" placeholder="예: 대전에서 교통 좋은 곳은?" autocomplete="off">
+            <button id="chat-send" onclick="sendMessage()" style="background:var(--dj-sky);color:#1E2A3A;">전송</button>
+        </div>
+    </div>
+
+    <!-- ===== 매물 평가 모달 ===== -->
+    <div id="modal-overlay" onclick="closeModal(event)">
+        <div id="modal-box">
+            <div class="modal-header">
+                <div>
+                    <div
+                        style="font-size:10px;font-weight:800;color:var(--ba-blue);letter-spacing:0.5px;margin-bottom:4px;">
+                        PROPERTY EVALUATION</div>
+                    <div class="modal-title">관심 매물 적합도 평가</div>
+                </div>
+                <button class="modal-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="sb-desc">매물 정보를 입력하면 AI가 나의 조건 대비 적합도를 평가합니다.</div>
+            <div class="form-group">
+                <label>행정동 선택</label>
+                <select class="sel" id="prop-dong"></select>
+            </div>
+            <div class="btn-row">
+                <div class="form-group">
+                    <label>보증금 (만원)</label>
+                    <input class="inp" id="prop-deposit" type="number" placeholder="예: 1000" value="1000">
+                </div>
+                <div class="form-group">
+                    <label>월세 (만원)</label>
+                    <input class="inp" id="prop-rent" type="number" placeholder="예: 55" value="55">
+                </div>
+            </div>
+            <div class="btn-row">
+                <div class="form-group">
+                    <label>면적 (㎡)</label>
+                    <input class="inp" id="prop-area" type="number" placeholder="예: 33" value="33">
+                </div>
+                <div class="form-group">
+                    <label>층수</label>
+                    <input class="inp" id="prop-floor" type="number" placeholder="예: 3" value="3">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>매물 옵션</label>
+                <div class="check-grid">
+                    <label class="check-item"><input type="checkbox" id="opt-veranda" checked> 베란다</label>
+                    <label class="check-item"><input type="checkbox" id="opt-parking"> 주차</label>
+                    <label class="check-item"><input type="checkbox" id="opt-elevator"> 엘리베이터</label>
+                    <label class="check-item"><input type="checkbox" id="opt-newbuild"> 신축</label>
+                </div>
+            </div>
+            <button class="btn-primary" onclick="runPropertyEvaluation()">🔍 적합도 평가하기</button>
+            <div id="modal-result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- ===== 도시브랜드 스트립 ===== -->
+    <div class="dj-brand-strip">
+        <div class="dj-brand-pill">🌟 <span>Daejeon is U</span> · 꿈씨패밀리와 함께하는 대전 주거 AI</div>
+    </div>
+
+    <!-- ===== 푸터 ===== -->
+    <footer class="footer"
+        style="background:linear-gradient(90deg,#1E2A3A,#2C2C4A);border-top:1px solid rgba(245,200,130,0.2);">
+        <img src="dream_family_01.png" alt="꿈돌이꿈순이"
+            style="height:22px;margin-right:8px;vertical-align:middle;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.3));">
+        대전 주거 AI © 2026 &nbsp;·&nbsp; <span style="color:var(--dj-beige);">Daejeon is U</span> &nbsp;·&nbsp; 공공데이터 기반 ·
+        참고용으로만 활용하세요
+    </footer>
+
+    <script>
+        // ─── 1. 더미 데이터 ───────────────────────────────────────────────────
+        const DAEJEON_DATA = {
+            "원동": { gu: "동구", lat: 36.3317, lng: 127.4540, scores: { transport: 72, safety: 65, convenience: 70, cost: 82, education: 60, green: 55, development: 45, stability: 68 }, avg_rent: 42, avg_deposit: 800, avg_jeonse: 9500 },
+            "인동": { gu: "동구", lat: 36.3397, lng: 127.4472, scores: { transport: 68, safety: 62, convenience: 65, cost: 85, education: 55, green: 50, development: 50, stability: 65 }, avg_rent: 38, avg_deposit: 700, avg_jeonse: 8500 },
+            "효동": { gu: "동구", lat: 36.3257, lng: 127.4612, scores: { transport: 55, safety: 60, convenience: 58, cost: 88, education: 52, green: 62, development: 40, stability: 62 }, avg_rent: 35, avg_deposit: 600, avg_jeonse: 7800 },
+            "가양1동": { gu: "동구", lat: 36.3480, lng: 127.4580, scores: { transport: 75, safety: 70, convenience: 72, cost: 75, education: 65, green: 58, development: 55, stability: 72 }, avg_rent: 45, avg_deposit: 900, avg_jeonse: 10500 },
+            "가양2동": { gu: "동구", lat: 36.3520, lng: 127.4610, scores: { transport: 70, safety: 68, convenience: 68, cost: 78, education: 62, green: 55, development: 52, stability: 70 }, avg_rent: 43, avg_deposit: 850, avg_jeonse: 10000 },
+            "용운동": { gu: "동구", lat: 36.3382, lng: 127.4648, scores: { transport: 62, safety: 65, convenience: 60, cost: 80, education: 68, green: 70, development: 48, stability: 67 }, avg_rent: 40, avg_deposit: 750, avg_jeonse: 9000 },
+            "대동": { gu: "동구", lat: 36.3298, lng: 127.4490, scores: { transport: 78, safety: 63, convenience: 75, cost: 80, education: 58, green: 48, development: 58, stability: 65 }, avg_rent: 41, avg_deposit: 780, avg_jeonse: 9200 },
+            "삼성동": { gu: "동구", lat: 36.3195, lng: 127.4537, scores: { transport: 65, safety: 61, convenience: 62, cost: 87, education: 54, green: 52, development: 43, stability: 63 }, avg_rent: 36, avg_deposit: 680, avg_jeonse: 8200 },
+            "성남동": { gu: "동구", lat: 36.3250, lng: 127.4460, scores: { transport: 80, safety: 66, convenience: 78, cost: 78, education: 60, green: 45, development: 62, stability: 68 }, avg_rent: 44, avg_deposit: 860, avg_jeonse: 10200 },
+            "은행선화동": { gu: "중구", lat: 36.3246, lng: 127.4247, scores: { transport: 88, safety: 72, convenience: 92, cost: 65, education: 72, green: 48, development: 70, stability: 74 }, avg_rent: 58, avg_deposit: 1200, avg_jeonse: 14000 },
+            "목동": { gu: "중구", lat: 36.3218, lng: 127.4190, scores: { transport: 85, safety: 70, convenience: 88, cost: 68, education: 70, green: 45, development: 68, stability: 72 }, avg_rent: 55, avg_deposit: 1100, avg_jeonse: 13000 },
+            "중촌동": { gu: "중구", lat: 36.3370, lng: 127.4180, scores: { transport: 82, safety: 71, convenience: 85, cost: 70, education: 68, green: 50, development: 65, stability: 73 }, avg_rent: 52, avg_deposit: 1050, avg_jeonse: 12500 },
+            "대흥동": { gu: "중구", lat: 36.3290, lng: 127.4220, scores: { transport: 86, safety: 69, convenience: 90, cost: 67, education: 71, green: 46, development: 72, stability: 71 }, avg_rent: 56, avg_deposit: 1150, avg_jeonse: 13500 },
+            "문화동": { gu: "중구", lat: 36.3310, lng: 127.4260, scores: { transport: 84, safety: 71, convenience: 87, cost: 69, education: 73, green: 52, development: 68, stability: 73 }, avg_rent: 54, avg_deposit: 1080, avg_jeonse: 12800 },
+            "태평1동": { gu: "중구", lat: 36.3170, lng: 127.4330, scores: { transport: 76, safety: 66, convenience: 78, cost: 74, education: 62, green: 58, development: 55, stability: 68 }, avg_rent: 46, avg_deposit: 920, avg_jeonse: 11000 },
+            "태평2동": { gu: "중구", lat: 36.3140, lng: 127.4370, scores: { transport: 73, safety: 65, convenience: 75, cost: 76, education: 60, green: 60, development: 52, stability: 67 }, avg_rent: 44, avg_deposit: 880, avg_jeonse: 10500 },
+            "유천1동": { gu: "중구", lat: 36.3090, lng: 127.4220, scores: { transport: 70, safety: 64, convenience: 72, cost: 78, education: 58, green: 62, development: 50, stability: 66 }, avg_rent: 42, avg_deposit: 830, avg_jeonse: 10000 },
+            "도안동": { gu: "서구", lat: 36.3680, lng: 127.3680, scores: { transport: 70, safety: 85, convenience: 82, cost: 62, education: 82, green: 88, development: 90, stability: 83 }, avg_rent: 65, avg_deposit: 1500, avg_jeonse: 18000 },
+            "갈마1동": { gu: "서구", lat: 36.3560, lng: 127.3780, scores: { transport: 82, safety: 78, convenience: 85, cost: 68, education: 78, green: 72, development: 72, stability: 80 }, avg_rent: 58, avg_deposit: 1250, avg_jeonse: 15000 },
+            "갈마2동": { gu: "서구", lat: 36.3510, lng: 127.3820, scores: { transport: 80, safety: 76, convenience: 83, cost: 70, education: 76, green: 70, development: 70, stability: 78 }, avg_rent: 56, avg_deposit: 1200, avg_jeonse: 14500 },
+            "월평1동": { gu: "서구", lat: 36.3620, lng: 127.3870, scores: { transport: 83, safety: 80, convenience: 86, cost: 67, education: 80, green: 74, development: 68, stability: 81 }, avg_rent: 60, avg_deposit: 1300, avg_jeonse: 15500 },
+            "월평2동": { gu: "서구", lat: 36.3660, lng: 127.3920, scores: { transport: 85, safety: 82, convenience: 88, cost: 65, education: 82, green: 72, development: 70, stability: 82 }, avg_rent: 62, avg_deposit: 1350, avg_jeonse: 16000 },
+            "월평3동": { gu: "서구", lat: 36.3700, lng: 127.3960, scores: { transport: 84, safety: 81, convenience: 87, cost: 66, education: 81, green: 73, development: 71, stability: 81 }, avg_rent: 61, avg_deposit: 1320, avg_jeonse: 15800 },
+            "둔산1동": { gu: "서구", lat: 36.3510, lng: 127.3870, scores: { transport: 90, safety: 83, convenience: 92, cost: 60, education: 88, green: 78, development: 75, stability: 85 }, avg_rent: 72, avg_deposit: 1700, avg_jeonse: 20000 },
+            "둔산2동": { gu: "서구", lat: 36.3560, lng: 127.3920, scores: { transport: 92, safety: 85, convenience: 94, cost: 58, education: 90, green: 80, development: 77, stability: 87 }, avg_rent: 75, avg_deposit: 1800, avg_jeonse: 21000 },
+            "둔산3동": { gu: "서구", lat: 36.3600, lng: 127.3960, scores: { transport: 91, safety: 84, convenience: 93, cost: 59, education: 89, green: 79, development: 76, stability: 86 }, avg_rent: 73, avg_deposit: 1750, avg_jeonse: 20500 },
+            "탄방동": { gu: "서구", lat: 36.3450, lng: 127.4020, scores: { transport: 85, safety: 78, convenience: 87, cost: 64, education: 80, green: 70, development: 72, stability: 80 }, avg_rent: 63, avg_deposit: 1380, avg_jeonse: 16500 },
+            "내동": { gu: "서구", lat: 36.3390, lng: 127.4080, scores: { transport: 82, safety: 76, convenience: 84, cost: 66, education: 78, green: 68, development: 70, stability: 78 }, avg_rent: 60, avg_deposit: 1300, avg_jeonse: 15500 },
+            "도마1동": { gu: "서구", lat: 36.3320, lng: 127.4010, scores: { transport: 80, safety: 74, convenience: 82, cost: 68, education: 74, green: 62, development: 68, stability: 76 }, avg_rent: 55, avg_deposit: 1100, avg_jeonse: 13200 },
+            "도마2동": { gu: "서구", lat: 36.3360, lng: 127.4050, scores: { transport: 81, safety: 75, convenience: 83, cost: 67, education: 75, green: 63, development: 69, stability: 77 }, avg_rent: 56, avg_deposit: 1120, avg_jeonse: 13500 },
+            "복수동": { gu: "서구", lat: 36.3200, lng: 127.4120, scores: { transport: 76, safety: 72, convenience: 78, cost: 72, education: 70, green: 65, development: 62, stability: 74 }, avg_rent: 50, avg_deposit: 1000, avg_jeonse: 12000 },
+            "정림동": { gu: "서구", lat: 36.3350, lng: 127.3770, scores: { transport: 75, safety: 72, convenience: 77, cost: 74, education: 70, green: 66, development: 62, stability: 74 }, avg_rent: 49, avg_deposit: 980, avg_jeonse: 11800 },
+            "변동": { gu: "서구", lat: 36.3420, lng: 127.3920, scores: { transport: 78, safety: 74, convenience: 80, cost: 72, education: 72, green: 68, development: 65, stability: 76 }, avg_rent: 52, avg_deposit: 1050, avg_jeonse: 12800 },
+            "유성동": { gu: "유성구", lat: 36.3625, lng: 127.3563, scores: { transport: 80, safety: 78, convenience: 85, cost: 65, education: 82, green: 80, development: 75, stability: 80 }, avg_rent: 60, avg_deposit: 1300, avg_jeonse: 15500 },
+            "봉명동": { gu: "유성구", lat: 36.3695, lng: 127.3493, scores: { transport: 83, safety: 80, convenience: 88, cost: 63, education: 85, green: 78, development: 77, stability: 82 }, avg_rent: 63, avg_deposit: 1400, avg_jeonse: 16500 },
+            "노은1동": { gu: "유성구", lat: 36.4020, lng: 127.3380, scores: { transport: 78, safety: 82, convenience: 80, cost: 68, education: 85, green: 82, development: 72, stability: 82 }, avg_rent: 58, avg_deposit: 1250, avg_jeonse: 15000 },
+            "노은2동": { gu: "유성구", lat: 36.4070, lng: 127.3450, scores: { transport: 80, safety: 84, convenience: 82, cost: 67, education: 87, green: 83, development: 74, stability: 84 }, avg_rent: 60, avg_deposit: 1300, avg_jeonse: 15500 },
+            "노은3동": { gu: "유성구", lat: 36.4120, lng: 127.3510, scores: { transport: 76, safety: 83, convenience: 78, cost: 69, education: 86, green: 84, development: 73, stability: 83 }, avg_rent: 57, avg_deposit: 1200, avg_jeonse: 14500 },
+            "신성동": { gu: "유성구", lat: 36.3760, lng: 127.3490, scores: { transport: 75, safety: 79, convenience: 77, cost: 70, education: 83, green: 80, development: 70, stability: 80 }, avg_rent: 55, avg_deposit: 1150, avg_jeonse: 13800 },
+            "전민동": { gu: "유성구", lat: 36.4000, lng: 127.3720, scores: { transport: 72, safety: 82, convenience: 75, cost: 67, education: 88, green: 82, development: 73, stability: 83 }, avg_rent: 58, avg_deposit: 1250, avg_jeonse: 15000 },
+            "반석동": { gu: "유성구", lat: 36.4180, lng: 127.3620, scores: { transport: 82, safety: 83, convenience: 80, cost: 66, education: 86, green: 80, development: 75, stability: 83 }, avg_rent: 60, avg_deposit: 1300, avg_jeonse: 15500 },
+            "관평동": { gu: "유성구", lat: 36.4320, lng: 127.3920, scores: { transport: 68, safety: 80, convenience: 72, cost: 70, education: 80, green: 78, development: 78, stability: 80 }, avg_rent: 55, avg_deposit: 1100, avg_jeonse: 13200 },
+            "온천1동": { gu: "유성구", lat: 36.3610, lng: 127.3420, scores: { transport: 85, safety: 78, convenience: 87, cost: 64, education: 80, green: 75, development: 76, stability: 80 }, avg_rent: 64, avg_deposit: 1420, avg_jeonse: 17000 },
+            "온천2동": { gu: "유성구", lat: 36.3660, lng: 127.3470, scores: { transport: 83, safety: 79, convenience: 85, cost: 65, education: 81, green: 76, development: 74, stability: 81 }, avg_rent: 62, avg_deposit: 1370, avg_jeonse: 16500 },
+            "지족동": { gu: "유성구", lat: 36.3990, lng: 127.3500, scores: { transport: 75, safety: 81, convenience: 78, cost: 68, education: 84, green: 81, development: 72, stability: 81 }, avg_rent: 57, avg_deposit: 1200, avg_jeonse: 14500 },
+            "어은동": { gu: "유성구", lat: 36.3730, lng: 127.3600, scores: { transport: 78, safety: 80, convenience: 80, cost: 66, education: 85, green: 78, development: 72, stability: 80 }, avg_rent: 58, avg_deposit: 1230, avg_jeonse: 14800 },
+            "궁동": { gu: "유성구", lat: 36.3680, lng: 127.3650, scores: { transport: 76, safety: 78, convenience: 78, cost: 68, education: 82, green: 76, development: 70, stability: 79 }, avg_rent: 55, avg_deposit: 1150, avg_jeonse: 13800 },
+            "덕명동": { gu: "유성구", lat: 36.3780, lng: 127.3380, scores: { transport: 72, safety: 80, convenience: 74, cost: 70, education: 82, green: 80, development: 72, stability: 80 }, avg_rent: 54, avg_deposit: 1100, avg_jeonse: 13200 },
+            "장대동": { gu: "유성구", lat: 36.3710, lng: 127.3550, scores: { transport: 79, safety: 79, convenience: 81, cost: 67, education: 81, green: 77, development: 71, stability: 79 }, avg_rent: 57, avg_deposit: 1200, avg_jeonse: 14400 },
+            "화암동": { gu: "유성구", lat: 36.3610, lng: 127.3240, scores: { transport: 60, safety: 76, convenience: 63, cost: 78, education: 73, green: 85, development: 63, stability: 76 }, avg_rent: 46, avg_deposit: 920, avg_jeonse: 11000 },
+            "오정동": { gu: "대덕구", lat: 36.3640, lng: 127.4150, scores: { transport: 72, safety: 68, convenience: 74, cost: 78, education: 65, green: 60, development: 58, stability: 70 }, avg_rent: 47, avg_deposit: 950, avg_jeonse: 11500 },
+            "중리동": { gu: "대덕구", lat: 36.3710, lng: 127.4220, scores: { transport: 70, safety: 66, convenience: 72, cost: 80, education: 62, green: 58, development: 55, stability: 68 }, avg_rent: 44, avg_deposit: 880, avg_jeonse: 10800 },
+            "석봉동": { gu: "대덕구", lat: 36.3780, lng: 127.4290, scores: { transport: 65, safety: 65, convenience: 68, cost: 82, education: 60, green: 62, development: 52, stability: 66 }, avg_rent: 41, avg_deposit: 820, avg_jeonse: 9800 },
+            "법동": { gu: "대덕구", lat: 36.3850, lng: 127.4360, scores: { transport: 62, safety: 64, convenience: 65, cost: 84, education: 58, green: 65, development: 50, stability: 65 }, avg_rent: 39, avg_deposit: 780, avg_jeonse: 9300 },
+            "신탄진동": { gu: "대덕구", lat: 36.4380, lng: 127.4020, scores: { transport: 68, safety: 67, convenience: 70, cost: 82, education: 62, green: 70, development: 62, stability: 68 }, avg_rent: 43, avg_deposit: 850, avg_jeonse: 10200 },
+            "비래동": { gu: "대덕구", lat: 36.3720, lng: 127.4500, scores: { transport: 63, safety: 66, convenience: 65, cost: 83, education: 60, green: 65, development: 53, stability: 66 }, avg_rent: 40, avg_deposit: 800, avg_jeonse: 9500 },
+        };
+
+        const DISTRICT_INFO = {
+            "둔산2동": { pros: ["대전 최대 상업·행정 중심지, 편의시설 최우수", "지하철·버스 네트워크 탁월", "대형마트·병원·문화시설 도보 접근"], cons: ["임대료 대전 평균 대비 약 30% 높음", "주말 유동인구로 소음 가능"], tags: ["편의 최고", "교통 편리", "고물가 주의"] },
+            "도안동": { pros: ["갑천 생태공원 인접 녹지 풍부", "신도시로 주거환경 쾌적", "어린이집·학교 교육시설 우수"], cons: ["지하철 접근성 상대적으로 낮음", "상업시설 아직 성숙 중"], tags: ["녹지 풍부", "신도시", "교육 우수"] },
+            "노은2동": { pros: ["학원가·학교 밀집, 교육환경 최우수", "안전하고 조용한 주거 환경", "대형마트·편의시설 접근 양호"], cons: ["원도심 대비 임대료 약간 높음", "지하철역까지 버스 환승 필요"], tags: ["교육 최우수", "안전", "가족형"] },
+            "은행선화동": { pros: ["대전역·정부청사 접근성 최우수", "대흥동 문화·예술지구 인접", "공공기관 도보 통근 가능"], cons: ["원도심 특성상 건물 노후화", "일부 유흥가 인접"], tags: ["교통 편리", "직주근접", "원도심"] },
+            "봉명동": { pros: ["유성온천·유성구청 인접 생활편의 우수", "카이스트·충남대 인근 교육 인프라", "젊은 층 많아 활기찬 분위기"], cons: ["온천지구 유흥가 인접 가능", "주차 공간 부족"], tags: ["대학가 인접", "활기찬 환경", "청년 선호"] },
+            "둔산1동": { pros: ["서구청·행정기관 밀집 직주근접", "학원가·병원 클러스터", "교통·편의 최상위권"], cons: ["전반적 임대료 높음", "주차난 심함"], tags: ["행정 중심", "편의 최상", "프리미엄"] },
+            "탄방동": { pros: ["대전역·둔산 접근 양호한 중간 입지", "편의시설·학원 접근 우수", "임대료 둔산 대비 합리적"], cons: ["일부 구역 소음 우려", "주거지와 상업지 혼재"], tags: ["입지 우수", "합리적 가격", "역세권"] },
+            "전민동": { pros: ["KAIST·대덕특구 인근 IT직종 최적", "교육환경 대전 최상위권", "조용하고 안전한 주거"], cons: ["대중교통 다소 불편", "상업시설 이동 필요"], tags: ["연구단지", "교육 최우수", "안전"] },
+            "반석동": { pros: ["지하철 반석역 직결 교통 편리", "노은지구 연계 신주거지", "상업·교육 시설 성장 중"], cons: ["도심까지 이동 시간 걸림", "일부 개발 진행 중"], tags: ["역세권", "신주거지", "성장 중"] },
+            "갈마1동": { pros: ["둔산 신도심과 인접한 준신도심", "버스 노선 풍부", "임대료 둔산보다 합리적"], cons: ["일부 노후 주택 혼재", "주차 공간 부족 지역 있음"], tags: ["둔산 인접", "교통 양호", "합리적"] },
+        };
+
+        const PRESETS = {
+            "교통 우선형": { transport: 5, safety: 2, convenience: 3, cost: 2, education: 1, green: 1, development: 2, stability: 2 },
+            "가성비 우선형": { transport: 2, safety: 3, convenience: 3, cost: 5, education: 2, green: 2, development: 2, stability: 3 },
+            "안전 우선형": { transport: 2, safety: 5, convenience: 3, cost: 2, education: 3, green: 3, development: 1, stability: 4 },
+            "신혼부부형": { transport: 2, safety: 4, convenience: 3, cost: 2, education: 5, green: 3, development: 3, stability: 4 },
+            "대학원생형": { transport: 4, safety: 3, convenience: 4, cost: 5, education: 3, green: 2, development: 1, stability: 2 },
+            "자연 선호형": { transport: 1, safety: 3, convenience: 2, cost: 3, education: 2, green: 5, development: 2, stability: 3 },
+        };
+
+        const WORKPLACES = {
+            "정부청사역": { lat: 36.3510, lng: 127.3870 },
+            "대전역": { lat: 36.3322, lng: 127.4344 },
+            "유성구청": { lat: 36.3625, lng: 127.3563 },
+            "충남대학교": { lat: 36.3688, lng: 127.3430 },
+            "KAIST": { lat: 36.3738, lng: 127.3607 },
+            "대전시청": { lat: 36.3511, lng: 127.3849 },
+            "대덕연구단지": { lat: 36.3810, lng: 127.3640 },
+            "대전복합터미널": { lat: 36.3203, lng: 127.4320 },
+        };
+
+        const CHATBOT_KB = [
+            { kw: ["교통", "지하철", "버스", "통근", "대중교통", "역"], res: `대전 대중교통은 <b>지하철 1호선</b>과 버스 네트워크로 구성됩니다.\n\n🚇 지하철 접근성 우수: 둔산동, 탄방동, 은행선화동\n🚌 버스 노선 풍부: 중구·서구 주요 지역\n🚇 <b>2호선 트램 예정</b>: 도안~반석~노은 라인\n\n출근지를 조건 입력에 넣으시면 통근 기준 최적 지역을 추천해드려요!` },
+            { kw: ["안전", "치안", "범죄", "야간"], res: `대전 치안 수준은 지역별로 차이가 있습니다.\n\n🟢 안전 상위: 도안동, 노은동, 유성구 신도시권\n🟡 중간: 둔산동, 갈마동, 월평동\n🔴 주의 권고: 일부 원도심 구역\n\n야간 편의점 접근성이 중요하시다면 <b>둔산·탄방 라인</b>을 추천드려요.` },
+            { kw: ["월세", "전세", "보증금", "임대", "가격", "비용", "예산", "저렴"], res: `대전 지역별 평균 월세 수준:\n\n💰 30~40만원대: 동구, 대덕구 외곽\n💰 40~50만원대: 중구, 동구 주요지역\n💰 50~60만원대: 서구, 유성구 일반지역\n💰 60~75만원대: 둔산동, 도안동 프리미엄\n\n<b>조건 입력 탭</b>에서 예산을 설정하시면 예산 내 최적 지역을 필터링해 드립니다!` },
+            { kw: ["학교", "교육", "학원", "어린이집", "아이", "자녀"], res: `대전 교육 인프라 우수 지역:\n\n🏫 초·중·고 학군: 노은동, 도안동, 둔산동\n👨‍🎓 대학 인접: 어은동·궁동(충남대), 어은동(KAIST)\n🎓 학원가: 노은동, 둔산1·2동\n👶 어린이집: 도안동, 노은동\n\n신혼부부나 자녀가 있으시다면 <b>노은2동, 도안동</b>을 강력 추천드립니다!` },
+            { kw: ["개발", "재개발", "신도시", "호재", "미래"], res: `대전 주요 개발/정비 현황:\n\n🏗️ 진행 중:\n- 도안 신도시: 갑천지구 지속 개발\n- 대전역세권: 복합개발 추진\n- 은행선화·대흥동: 도시재생뉴딜\n\n📋 예정:\n- <b>지하철 2호선 트램</b> (월평~반석)\n- 관평동 산단 연계 주거개발\n\n<b>도안동·대전역 인근</b>이 중장기 가치 상승 기대됩니다!` },
+            { kw: ["추천", "어디", "어느", "동네", "살기 좋은", "좋은 곳"], res: `대전 인기 주거지 TOP 5:\n\n🥇 <b>둔산2동</b> - 편의·교통 최고, 임대료 높음\n🥈 <b>도안동</b> - 신도시 쾌적함, 녹지 풍부\n🥉 <b>노은2동</b> - 교육 최우수, 안전·조용함\n4️⃣ <b>봉명동</b> - 대학가 인접, 젊고 활기참\n5️⃣ <b>탄방동</b> - 교통 편리, 합리적 임대료\n\n<b>조건 입력 탭</b>에서 맞춤 추천을 받아보세요!` },
+            { kw: ["대전", "특징", "어떤 도시", "소개"], res: `대전은 충청권 중심 광역시입니다! 🏙️\n\n📍 5개 자치구: 동구·중구·서구·유성구·대덕구\n🚄 KTX 대전역, 고속도로 요충지\n🔬 대덕연구개발특구, KAIST\n🏗️ 도안 신도시, 대전역세권 개발 활발\n\n서울 대비 임대료 50~60% 수준! 어떤 조건으로 찾고 계신지 알려주세요.` },
+            { kw: ["녹지", "공원", "자연", "갑천"], res: `대전 녹지/자연환경 우수 지역:\n\n🌳 <b>도안동</b>: 갑천 생태공원 바로 인접\n🌳 <b>화암동</b>: 계룡산 인근 자연환경 최고\n🌳 <b>노은동</b>: 도심 속 녹지 조성\n\n🌊 하천: 갑천(도안·월평), 유등천(중구·서구)\n\n자연 선호 프리셋으로 조건 입력해보세요!` },
+            { kw: ["1인", "혼자", "원룸", "일인"], res: `1인 가구 추천 대전 지역:\n\n✅ <b>봉명동·유성동</b>: 원룸 밀집, 대중교통 편리\n✅ <b>탄방동·내동</b>: 편의시설 도보, 합리적 임대료\n✅ <b>은행선화동</b>: 직장인 1인가구 최적\n\n평균 예산: 보증금 500~1000만원, 월세 35~55만원` },
+        ];
+
+        // ─── 2. 상태 ─────────────────────────────────────────────────────────
+        let mapObj = null, allMarkers = {}, workplaceMarker = null;
+        let activeTab = 'map', filterGu = '전체', selectedDong = null, currentTop5 = [];
+        let STATE = {
+            budgetType: 'monthly', budgetMax: 70, depositMax: 1500,
+            workplace: '정부청사역',
+            weights: { transport: 3, safety: 3, convenience: 3, cost: 3, education: 3, green: 2, development: 2, stability: 3 },
+            avoidance: [], presetName: null, hasResult: false,
+        };
+
+        // ─── 3. 점수 계산 ────────────────────────────────────────────────────
+        function computeScore(dong, weights) {
+            const info = DAEJEON_DATA[dong]; if (!info) return 0;
+            const s = info.scores; let total = 0, wsum = 0;
+            for (const [k, w] of Object.entries(weights)) { if (s[k] !== undefined) { total += s[k] * w; wsum += w; } }
+            return wsum > 0 ? Math.round(total / wsum * 10) / 10 : 0;
+        }
+        function scoreColor(v) {
+            if (v >= 85) return '#12a6ff'; if (v >= 75) return '#4dd4ac';
+            if (v >= 65) return '#ffd043'; if (v >= 55) return '#ff9f43'; return '#ff6b6b';
+        }
+        function getTop5(weights, filters = {}) {
+            const { budgetMax, budgetType } = filters;
+            let cands = Object.entries(DAEJEON_DATA).map(([dong, info]) => {
+                if (budgetMax) {
+                    if (budgetType === 'monthly' && info.avg_rent > budgetMax) return null;
+                    if (budgetType === 'jeonse' && info.avg_jeonse > budgetMax) return null;
+                }
+                return { dong, score: computeScore(dong, weights), info };
+            }).filter(Boolean);
+            cands.sort((a, b) => b.score - a.score);
+            return cands.slice(0, 5);
+        }
+
+        // ─── 4. 지도 초기화 ──────────────────────────────────────────────────
+        function initMap() {
+            mapObj = L.map('map_div', { center: [36.3504, 127.3845], zoom: 12, zoomControl: false });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18
+            }).addTo(mapObj);
+            L.control.zoom({ position: 'bottomright' }).addTo(mapObj);
+            renderAllMarkers(STATE.weights);
+        }
+
+        function renderAllMarkers(weights, top5Names = []) {
+            Object.values(allMarkers).forEach(m => m.remove()); allMarkers = {};
+            if (workplaceMarker) { workplaceMarker.remove(); workplaceMarker = null; }
+            Object.entries(DAEJEON_DATA).forEach(([dong, info]) => {
+                if (filterGu !== '전체' && info.gu !== filterGu) return;
+                const score = computeScore(dong, weights);
+                const color = scoreColor(score);
+                const isTop = top5Names.includes(dong);
+                const rank = top5Names.indexOf(dong);
+                const circle = L.circleMarker([info.lat, info.lng], {
+                    radius: isTop ? 18 : Math.max(7, Math.min(13, score / 6.5)),
+                    color: isTop ? '#ffd043' : color, fillColor: color,
+                    fillOpacity: isTop ? 0.92 : 0.72, weight: isTop ? 3 : 1.5,
+                }).addTo(mapObj);
+                const rankBadge = isTop ? `<span style="display:inline-block;background:${['#ffd043', '#c0c0c0', '#cd7f32', '#12a6ff', '#12a6ff'][rank]};color:${rank < 3 ? '#000' : '#fff'};padding:2px 7px;border-radius:10px;font-weight:900;font-size:10px;margin-bottom:4px;">#${rank + 1} TOP PICK</span><br>` : '';
+                circle.bindPopup(createPopup(dong, info, score, rankBadge), { maxWidth: 260 });
+                circle.bindTooltip(`${isTop ? '⭐ ' : ''}${dong} (${score.toFixed(1)}점)`, { direction: 'top' });
+                circle.on('click', () => { selectedDong = dong; if (activeTab === 'map') renderSidebar(); });
+                allMarkers[dong] = circle;
+            });
+            const wp = WORKPLACES[STATE.workplace];
+            if (wp) {
+                const icon = L.divIcon({ html: `<div style="width:32px;height:32px;background:#ff3b77;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 3px 10px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);font-size:14px;">🏢</span></div>`, className: '', iconSize: [32, 32], iconAnchor: [16, 32] });
+                workplaceMarker = L.marker([wp.lat, wp.lng], { icon }).addTo(mapObj);
+                workplaceMarker.bindTooltip(`📍 ${STATE.workplace}`, { permanent: true, direction: 'right' });
+            }
+        }
+
+        function createPopup(dong, info, score, extra = '') {
+            const s = info.scores;
+            const bars = [['🚌 교통', s.transport], ['🔒 안전', s.safety], ['🏪 편의', s.convenience], ['💰 비용', s.cost], ['🏫 교육', s.education], ['🌳 녹지', s.green]]
+                .map(([k, v]) => `<div style="display:flex;align-items:center;gap:5px;margin:2px 0;"><span style="font-size:10px;min-width:42px;color:#555;">${k}</span><div style="flex:1;height:5px;background:#eee;border-radius:3px;overflow:hidden;"><div style="width:${v}%;height:100%;background:${scoreColor(v)};border-radius:3px;"></div></div><span style="font-size:10px;font-weight:800;color:${scoreColor(v)};min-width:22px;">${v}</span></div>`).join('');
+            return `<div style="font-family:'Noto Sans KR',sans-serif;min-width:220px;padding:12px;"><div style="text-align:center;margin-bottom:6px;">${extra}</div><div style="font-weight:900;font-size:15px;color:#12a6ff;border-bottom:2px solid #12a6ff;padding-bottom:6px;margin-bottom:8px;">${dong} <span style="font-size:11px;color:#888;">${info.gu}</span></div><div style="text-align:center;margin-bottom:10px;"><span style="font-size:11px;color:#888;">종합 주거적합도</span><br><span style="font-size:28px;font-weight:900;color:${scoreColor(score)};">${score.toFixed(0)}</span><span style="font-size:13px;color:#888;">점</span></div>${bars}<hr style="border:1px solid #eee;margin:8px 0;"><div style="font-size:11px;display:flex;justify-content:space-between;"><span>월세 평균 <b style="color:#12a6ff;">${info.avg_rent}만원</b></span><span>보증금 <b style="color:#12a6ff;">${info.avg_deposit}만원</b></span></div></div>`;
+        }
+
+        // ─── 5. 탭 전환 ──────────────────────────────────────────────────────
+        function switchTab(tab) {
+            activeTab = tab;
+            ['Map', 'Input', 'Result', 'Chat'].forEach(t => {
+                const el = document.getElementById('nav' + t);
+                if (el) el.classList.toggle('active', t.toLowerCase() === tab);
+            });
+            document.getElementById('intro-overlay').classList.add('hidden');
+            const sb = document.getElementById('sidebar');
+            const cp = document.getElementById('chat-panel');
+            if (tab === 'chat') { sb.classList.remove('open'); cp.classList.add('open'); }
+            else { cp.classList.remove('open'); sb.classList.add('open'); }
+            document.getElementById('map-overlay').classList.toggle('hidden', tab !== 'map');
+            renderSidebar();
+            if (tab === 'result' && STATE.hasResult) highlightTop5();
+        }
+
+        function renderSidebar() {
+            const titles = { map: '행정동 지도', input: '조건 입력', result: '추천 결과' };
+            const tags = { map: '지도 모드', input: '입력 모드', result: '결과 모드' };
+            document.getElementById('sb-title').textContent = titles[activeTab] || '';
+            document.getElementById('sb-mode-tag').textContent = tags[activeTab] || '';
+            const body = document.getElementById('sb-body');
+            if (activeTab === 'map') body.innerHTML = renderMapSidebar();
+            if (activeTab === 'input') body.innerHTML = renderInputSidebar();
+            if (activeTab === 'result') body.innerHTML = renderResultSidebar();
+        }
+
+        // ─── 6. 지도 사이드바 ────────────────────────────────────────────────
+        function renderMapSidebar() {
+            const legend = [{ c: '#12a6ff', l: '85점+ (최우수)' }, { c: '#4dd4ac', l: '75~84점 (우수)' }, { c: '#ffd043', l: '65~74점 (보통)' }, { c: '#ff9f43', l: '55~64점 (미흡)' }, { c: '#ff6b6b', l: '55점 미만 (취약)' }]
+                .map(x => `<div class="legend-item"><div class="legend-dot" style="background:${x.c};"></div>${x.l}</div>`).join('');
+            const guBtns = ['전체', '동구', '중구', '서구', '유성구', '대덕구']
+                .map(g => `<button class="gu-btn ${g === filterGu ? 'active' : ''}" onclick="setGuFilter('${g}')">${g}</button>`).join('');
+
+            let dongCard = '';
+            if (selectedDong && DAEJEON_DATA[selectedDong]) {
+                const di = DAEJEON_DATA[selectedDong];
+                const sc = computeScore(selectedDong, STATE.weights);
+                const si = DISTRICT_INFO[selectedDong];
+                const bars = Object.entries({ transport: '🚌 교통', safety: '🔒 안전', convenience: '🏪 편의', cost: '💰 비용', education: '🏫 교육', green: '🌳 녹지' })
+                    .map(([k, l]) => { const v = di.scores[k]; return `<div class="score-row"><span class="score-row-label">${l}</span><div class="score-bar"><div class="score-bar-fill" style="width:${v}%;background:${scoreColor(v)};"></div></div><span class="score-row-val" style="color:${scoreColor(v)};">${v}</span></div>`; }).join('');
+                const prosHtml = (si ? si.pros : ['대중교통 접근성 양호', '생활편의시설 인접', '비교적 조용한 주거환경']).map(p => `<div class="pros-item">✅ ${p}</div>`).join('');
+                const consHtml = (si ? si.cons : ['일부 노후 시설 존재', '심야 교통 불편']).map(c => `<div class="cons-item">⚠️ ${c}</div>`).join('');
+                const tags = (si ? si.tags : [di.gu]).map(t => `<span class="tag tag-blue">${t}</span>`).join('');
+                dongCard = `<div class="card highlight fade-in">
+                <div class="card-label">${di.gu}</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="font-size:18px;font-weight:900;color:var(--ba-text-main);">${selectedDong}</div>
+                    <div style="font-size:22px;font-weight:900;color:${scoreColor(sc)};">${sc.toFixed(0)}점</div>
+                </div>
+                <div class="tag-row">${tags}</div>
+                <div class="divider"></div>
+                <div>${bars}</div>
+                <div class="divider"></div>
+                <div>${prosHtml}${consHtml}</div>
+                <div class="divider"></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ba-text-main);">
+                    <div>💵 월세 <b style="color:var(--ba-blue);">${di.avg_rent}만원</b></div>
+                    <div>📋 보증금 <b style="color:var(--ba-blue);">${di.avg_deposit}만원</b></div>
+                    <div>🏡 전세 <b style="color:var(--ba-blue);">${(di.avg_jeonse / 100).toFixed(0)}억</b></div>
+                </div>
+            </div>`;
+            }
+
+            return `<div class="card fade-in"><div class="card-label">색상 범례</div><div style="display:flex;flex-direction:column;gap:4px;">${legend}</div></div>
+        <div class="card fade-in"><div class="card-label">구 필터</div><div class="gu-filter-row">${guBtns}</div></div>
+        ${dongCard || `<div class="card done fade-in"><div class="card-label">안내</div><div class="card-value" style="font-size:12px;font-weight:500;color:var(--ba-text-sub);">지도의 마커를 클릭하면<br>해당 행정동의 상세 정보가<br>여기에 표시됩니다.</div></div>`}
+        <button class="btn-primary" onclick="switchTab('input')">✏️ 조건 입력해서 추천받기</button>`;
+        }
+
+        function setGuFilter(gu) { filterGu = gu; renderAllMarkers(STATE.weights, currentTop5.map(t => t.dong)); renderSidebar(); }
+
+        // ─── 7. 조건 입력 사이드바 ───────────────────────────────────────────
+        function renderInputSidebar() {
+            const presetBtns = Object.keys(PRESETS).map(p => `<button class="toggle-btn ${STATE.presetName === p ? 'active' : ''}" onclick="applyPreset('${p}')">${p}</button>`).join('');
+            const wpOpts = Object.keys(WORKPLACES).map(w => `<option value="${w}" ${STATE.workplace === w ? 'selected' : ''}>${w}</option>`).join('');
+            const wKeys = { transport: '🚌 교통', safety: '🔒 안전', convenience: '🏪 편의시설', cost: '💰 저렴함', education: '🏫 교육', green: '🌳 녹지', development: '🏗️ 개발가능성', stability: '🏠 거주안정성' };
+            const sliders = Object.entries(wKeys).map(([k, l]) => `<div class="weight-row"><span class="weight-label">${l}</span><input class="weight-slider" type="range" min="0" max="5" value="${STATE.weights[k]}" id="w_${k}" oninput="STATE.weights['${k}']=+this.value;document.getElementById('wv_${k}').textContent=this.value;"><span class="weight-val" id="wv_${k}">${STATE.weights[k]}</span></div>`).join('');
+            const avoidList = ['유흥가 인접', '소음', '언덕 많음', '대중교통 불편', '치안 취약', '주차 어려움'];
+            const avoids = avoidList.map((a, i) => `<label class="check-item"><input type="checkbox" id="av_${i}" ${STATE.avoidance.includes(a) ? 'checked' : ''} onchange="toggleAvoid('${a}',this.checked)"> ${a}</label>`).join('');
+            const bLabel = STATE.budgetType === 'monthly' ? `월세 상한: <b id="budget-disp">${STATE.budgetMax}만원</b>` : `전세 상한: <b id="budget-disp">${(STATE.budgetMax / 100).toFixed(1)}억</b>`;
+
+            return `<div class="card fade-in"><div class="card-label">🎯 빠른 프리셋 선택</div><div class="toggle-row">${presetBtns}</div></div>
+        <div class="card fade-in">
+            <div class="card-label">💵 임대 유형 & 예산</div>
+            <div class="btn-row">
+                <button class="toggle-btn ${STATE.budgetType === 'monthly' ? 'active' : ''}" onclick="setBudgetType('monthly')">월세</button>
+                <button class="toggle-btn ${STATE.budgetType === 'jeonse' ? 'active' : ''}" onclick="setBudgetType('jeonse')">전세</button>
+            </div>
+            <div class="form-group" style="margin-top:6px;">
+                <label>${bLabel}</label>
+                <input type="range" class="weight-slider" id="budget-slider"
+                    min="${STATE.budgetType === 'monthly' ? 30 : 5000}" max="${STATE.budgetType === 'monthly' ? 150 : 30000}" step="${STATE.budgetType === 'monthly' ? 5 : 1000}"
+                    value="${STATE.budgetMax}" oninput="STATE.budgetMax=+this.value;document.getElementById('budget-disp').textContent=this.value+(STATE.budgetType==='monthly'?'만원':'만원');">
+            </div>
+        </div>
+        <div class="card fade-in"><div class="card-label">🏢 직장 · 학교 위치</div><div class="form-group"><label>출근지 선택</label><select class="sel" id="workplace-sel" onchange="STATE.workplace=this.value;renderAllMarkers(STATE.weights,currentTop5.map(t=>t.dong));">${wpOpts}</select></div></div>
+        <div class="card fade-in"><div class="card-label">⚖️ 항목별 중요도 (0~5)</div><div style="font-size:10px;color:var(--ba-text-sub);margin-bottom:4px;">숫자가 클수록 더 중요하게 반영됩니다</div>${sliders}</div>
+        <div class="card fade-in"><div class="card-label">🚫 회피 조건</div><div class="check-grid">${avoids}</div></div>
+        <button class="btn-primary" style="margin-top:4px;" onclick="runRecommendation()">🔍 맞춤 추천 지역 TOP 5 찾기</button>`;
+        }
+
+        function applyPreset(name) { STATE.presetName = name; STATE.weights = { ...PRESETS[name] }; renderSidebar(); showBanner(`"${name}" 프리셋 적용됨`); }
+        function setBudgetType(type) { STATE.budgetType = type; STATE.budgetMax = type === 'monthly' ? 70 : 15000; renderSidebar(); }
+        function toggleAvoid(val, checked) { if (checked) { if (!STATE.avoidance.includes(val)) STATE.avoidance.push(val); } else { STATE.avoidance = STATE.avoidance.filter(x => x !== val); } }
+
+        // ─── 8. 추천 실행 ────────────────────────────────────────────────────
+        function runRecommendation() {
+            currentTop5 = getTop5(STATE.weights, { budgetMax: STATE.budgetMax, budgetType: STATE.budgetType });
+            STATE.hasResult = true;
+            switchTab('result');
+        }
+        function highlightTop5() {
+            renderAllMarkers(STATE.weights, currentTop5.map(t => t.dong));
+            filterGu = '전체';
+            if (mapObj && currentTop5.length > 0) {
+                const first = currentTop5[0];
+                mapObj.flyTo([first.info.lat, first.info.lng], 13, { duration: 1.2 });
+            }
+        }
+
+        // ─── 9. 추천 결과 사이드바 ───────────────────────────────────────────
+        function renderResultSidebar() {
+            if (!STATE.hasResult || currentTop5.length === 0) {
+                return `<div class="card done fade-in"><div class="card-label">안내</div><div class="card-value" style="font-size:12px;color:var(--ba-text-sub);">아직 조건을 입력하지 않았습니다.<br>먼저 조건 입력 탭에서 설정해주세요.</div></div><button class="btn-primary" onclick="switchTab('input')">✏️ 조건 입력하러 가기</button>`;
+            }
+            const rankClasses = ['rank-1', 'rank-2', 'rank-3', 'rank-4', 'rank-5'];
+            const cards = currentTop5.map((item, i) => {
+                const { dong, score, info } = item;
+                const si = DISTRICT_INFO[dong];
+                const cardClass = i === 0 ? 'card highlight' : 'card';
+                const pros = (si ? si.pros : ['대중교통 접근성 양호', '생활편의시설 인접', '비교적 조용한 주거환경']).slice(0, 3);
+                const cons = (si ? si.cons : ['일부 노후 시설 존재', '심야 교통 불편']).slice(0, 2);
+                const tags = (si ? si.tags : [info.gu]).map(t => `<span class="tag tag-blue">${t}</span>`).join('');
+                const scoreBars = [['transport', '교통'], ['safety', '안전'], ['convenience', '편의'], ['cost', '비용'], ['education', '교육'], ['green', '녹지']]
+                    .map(([k, l]) => { const v = info.scores[k]; return `<div style="display:flex;align-items:center;gap:4px;margin:1px 0;"><span style="font-size:9px;color:var(--ba-text-sub);min-width:28px;">${l}</span><div style="flex:1;height:4px;background:#eee;border-radius:2px;overflow:hidden;"><div style="width:${v}%;height:100%;background:${scoreColor(v)};border-radius:2px;"></div></div><span style="font-size:9px;font-weight:800;min-width:18px;text-align:right;color:${scoreColor(v)};">${v}</span></div>`; }).join('');
+                return `<div class="${cardClass} fade-in" style="animation-delay:${i * 0.08}s">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <div class="rank-badge ${rankClasses[i]}">${i + 1}</div>
+                    <div style="flex:1;"><div style="font-size:16px;font-weight:900;color:var(--ba-text-main);">${dong}</div><div style="font-size:10px;color:var(--ba-text-sub);">${info.gu}</div></div>
+                    <div style="font-size:22px;font-weight:900;color:${scoreColor(score)};">${score.toFixed(1)}<span style="font-size:11px;color:#aaa;">점</span></div>
+                </div>
+                <div class="tag-row">${tags}</div>
+                ${scoreBars}
+                <div class="divider"></div>
+                <div>${pros.map(p => `<div class="pros-item">✅ ${p}</div>`).join('')}${cons.map(c => `<div class="cons-item">⚠️ ${c}</div>`).join('')}</div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ba-text-main);margin-top:2px;">
+                    <span>💵 월세 <b style="color:var(--ba-blue);">${info.avg_rent}만원</b></span><span>📋 보증금 <b style="color:var(--ba-blue);">${info.avg_deposit}만원</b></span>
+                </div>
+                <button class="btn-ghost" style="font-size:10px;padding:6px;" onclick="focusDong('${dong}')">📍 지도에서 보기</button>
+            </div>`;
+            }).join('');
+
+            return `<div class="card done fade-in"><div class="card-label">✅ 맞춤 추천 완료</div><div style="font-size:11px;color:var(--ba-text-sub);">${STATE.budgetType === 'monthly' ? `월세 ${STATE.budgetMax}만원 이하` : `전세 ${(STATE.budgetMax / 100).toFixed(1)}억 이하`} · 직장: ${STATE.workplace}${STATE.presetName ? ` · "${STATE.presetName}" 프리셋` : ''}</div></div>
+        ${cards}
+        <button class="btn-yellow" onclick="openModal()">🏠 관심 매물 적합도 평가</button>
+        <button class="btn-ghost" onclick="switchTab('input')">⚙️ 조건 다시 입력</button>`;
+        }
+
+        function focusDong(dong) {
+            const info = DAEJEON_DATA[dong];
+            if (info && mapObj) { mapObj.flyTo([info.lat, info.lng], 14, { duration: 1 }); if (allMarkers[dong]) allMarkers[dong].openPopup(); }
+        }
+
+        // ─── 10. 매물 평가 ───────────────────────────────────────────────────
+        function openModal() {
+            const sel = document.getElementById('prop-dong');
+            sel.innerHTML = Object.keys(DAEJEON_DATA).map(d => `<option value="${d}">${d} (${DAEJEON_DATA[d].gu})</option>`).join('');
+            document.getElementById('modal-result').style.display = 'none';
+            document.getElementById('modal-overlay').classList.add('open');
+        }
+        function closeModal(e) { if (!e || e.target === document.getElementById('modal-overlay')) document.getElementById('modal-overlay').classList.remove('open'); }
+
+        function runPropertyEvaluation() {
+            const dong = document.getElementById('prop-dong').value;
+            const deposit = +document.getElementById('prop-deposit').value;
+            const rent = +document.getElementById('prop-rent').value;
+            const area = +document.getElementById('prop-area').value;
+            const floor = +document.getElementById('prop-floor').value;
+            const hasParking = document.getElementById('opt-parking').checked;
+            const hasElevator = document.getElementById('opt-elevator').checked;
+            const isNewBuild = document.getElementById('opt-newbuild').checked;
+            const info = DAEJEON_DATA[dong]; if (!info) return;
+
+            let score = 100; const positives = [], issues = [];
+            if (STATE.budgetType === 'monthly') {
+                if (rent <= STATE.budgetMax * 0.8) positives.push(`월세(${rent}만원)가 예산 대비 여유 있음`);
+                else if (rent <= STATE.budgetMax) positives.push(`월세가 예산(${STATE.budgetMax}만원) 범위 이내`);
+                else { score -= 25; issues.push(`월세(${rent}만원)가 예산(${STATE.budgetMax}만원) 초과`); }
+            }
+            if (deposit > STATE.depositMax) { score -= 15; issues.push(`보증금(${deposit}만원)이 설정 상한 초과`); }
+            else positives.push('보증금이 적정 수준');
+            const rpa = area > 0 ? (rent / area).toFixed(1) : 0;
+            if (rpa < 1.5) positives.push(`단위면적당 임대료 우수 (${rpa}만원/㎡)`);
+            else if (rpa > 2.5) { score -= 10; issues.push(`단위면적당 임대료 높음 (${rpa}만원/㎡)`); }
+            if (floor >= 3) positives.push('3층 이상으로 채광·소음 유리');
+            else if (floor === 1) { score -= 5; issues.push('1층으로 보안·소음 주의 필요'); }
+            const locScore = computeScore(dong, STATE.weights);
+            if (locScore >= 80) positives.push(`${dong} 위치 조건 우수 (${locScore.toFixed(0)}점)`);
+            else if (locScore >= 65) positives.push(`${dong} 위치 조건 양호 (${locScore.toFixed(0)}점)`);
+            else { score -= 15; issues.push(`${dong} 위치 조건 다소 불리 (${locScore.toFixed(0)}점)`); }
+            if (isNewBuild) positives.push('신축으로 시설 상태 양호');
+            if (hasParking) positives.push('주차 공간 확보');
+            if (!hasElevator && floor >= 4) { score -= 5; issues.push('엘리베이터 없음, 고층 불편'); }
+            if (STATE.avoidance.includes('치안 취약') && info.scores.safety < 65) { score -= 10; issues.push('선호 치안 조건 충족 어려움'); }
+            if (STATE.avoidance.includes('대중교통 불편') && info.scores.transport < 65) { score -= 10; issues.push('대중교통 접근성 미흡'); }
+
+            let verdict, vClass, emoji;
+            if (score >= 80) { verdict = '추천'; vClass = 'verdict-recommend'; emoji = '🎉'; }
+            else if (score >= 60) { verdict = '조건부 추천'; vClass = 'verdict-conditional'; emoji = '✅'; }
+            else if (score >= 40) { verdict = '주의'; vClass = 'verdict-caution'; emoji = '⚠️'; }
+            else { verdict = '비추천'; vClass = 'verdict-no'; emoji = '❌'; }
+
+            const resEl = document.getElementById('modal-result');
+            resEl.style.display = 'block';
+            resEl.innerHTML = `<div class="modal-result">
+            <div style="text-align:center;"><div style="font-size:11px;color:var(--ba-text-sub);margin-bottom:6px;">AI 적합도 판정 결과</div><span class="verdict-badge ${vClass}">${emoji} ${verdict}</span><div style="font-size:12px;color:var(--ba-text-sub);margin-top:6px;">${dong} · 월${rent}만원 · ${area}㎡ · ${floor}층</div></div>
+            <div class="divider"></div>
+            <div style="font-size:10px;font-weight:800;color:var(--ba-text-sub);margin-bottom:3px;">긍정 요인</div>
+            ${positives.map(p => `<div class="pros-item">✅ ${p}</div>`).join('') || '<div style="font-size:11px;color:#aaa;">해당 없음</div>'}
+            <div style="font-size:10px;font-weight:800;color:var(--ba-text-sub);margin:5px 0 3px;">주의 사항</div>
+            ${issues.map(p => `<div class="cons-item">⚠️ ${p}</div>`).join('') || '<div style="font-size:11px;color:#aaa;">특이사항 없음</div>'}
+        </div>`;
+            resEl.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // ─── 11. 챗봇 ────────────────────────────────────────────────────────
+        function initChat() {
+            appendMsg('ai', '안녕하세요! 대전 맞춤형 주거 AI 상담사입니다. 🏠\n\n궁금한 것을 자유롭게 질문해보세요!\n\n💬 예시 질문:\n• "대전에서 교통 좋은 곳은?"\n• "월세 50만원 이하 동네 추천"\n• "아이 키우기 좋은 지역은?"\n• "둔산2동 어때?" (동 이름 직접 질문)\n• "개발 호재 있는 곳은?"');
+        }
+        function sendMessage() {
+            const inp = document.getElementById('chat-input');
+            const msg = inp.value.trim(); if (!msg) return;
+            inp.value = '';
+            appendMsg('user', msg);
+            setTimeout(() => appendMsg('ai', getChatResponse(msg)), 600);
+        }
+        function getChatResponse(msg) {
+            const lower = msg.toLowerCase();
+            for (const kb of CHATBOT_KB) { if (kb.kw.some(k => lower.includes(k) || msg.includes(k))) return kb.res; }
+            const dongMatch = Object.keys(DAEJEON_DATA).find(d => msg.includes(d));
+            if (dongMatch) {
+                const di = DAEJEON_DATA[dongMatch];
+                const sc = computeScore(dongMatch, STATE.weights);
+                const si = DISTRICT_INFO[dongMatch];
+                const pros = si ? si.pros.join('\n• ') : '대중교통 접근성 양호\n• 생활편의시설 인접';
+                const cons = si ? si.cons.join('\n• ') : '일부 노후 시설 존재';
+                return `<b>${dongMatch}</b> (${di.gu}) 정보입니다!\n\n🏆 종합 주거적합도: <b>${sc.toFixed(0)}점</b>\n💵 평균 월세: <b>${di.avg_rent}만원</b>\n📋 평균 보증금: <b>${di.avg_deposit}만원</b>\n\n✅ 장점:\n• ${pros}\n\n⚠️ 주의:\n• ${cons}\n\n조건 입력 탭에서 나만의 가중치로 재평가해보세요!`;
+            }
+            return `죄송합니다, 정확히 이해하지 못했어요. 😅\n\n다음과 같이 질문해보세요:\n• "교통 좋은 곳 추천해줘"\n• "월세 저렴한 동네는?"\n• "안전한 동네 알려줘"\n• "둔산2동 어때?"\n• "신혼부부 맞는 지역은?"\n\n<b>조건 입력 탭</b>에서 AI 맞춤 TOP5 추천을 받아보세요!`;
+        }
+        function appendMsg(type, text) {
+            const container = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = `chat-msg ${type}`;
+            const formatted = text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+            const avatarHtml = type === 'ai'
+                ? `<div class="chat-avatar ai-avatar"><img src="dream_family_01.png" alt="꿈돌이"></div>`
+                : `<div class="chat-avatar">👤</div>`;
+            div.innerHTML = `${avatarHtml}<div class="chat-bubble">${formatted}</div>`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // ─── 12. 배너 ────────────────────────────────────────────────────────
+        function showBanner(text, duration = 2500) {
+            const b = document.getElementById('banner');
+            document.getElementById('banner-text').textContent = text;
+            b.classList.add('show');
+            setTimeout(() => b.classList.remove('show'), duration);
+        }
+
+        // ─── 13. 초기화 ──────────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            initChat();
+            setTimeout(() => { document.getElementById('intro-t1').classList.add('visible'); document.getElementById('intro-t2').classList.add('visible'); }, 300);
+            setTimeout(() => document.getElementById('intro-sub').classList.add('visible'), 600);
+            setTimeout(() => document.getElementById('intro-cta').classList.add('visible'), 900);
+            setTimeout(() => document.getElementById('intro-character').classList.add('visible'), 1100);
+            setTimeout(() => { document.getElementById('sidebar').classList.add('open'); renderSidebar(); }, 400);
+            setTimeout(() => showBanner('지도의 마커를 클릭해 행정동 정보를 확인하세요', 4000), 1200);
+            document.getElementById('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+        });
+    </script>
+</body>
+
+</html>
